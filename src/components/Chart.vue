@@ -115,8 +115,9 @@ export default {
           continue;
         }
         let value;
-        if (this.activeTab === 'LIQUIDITY')
+        if (this.activeTab === 'LIQUIDITY') {
           value = parseFloat(values.poolLiquidity);
+        }
         if (this.activeTab === 'VOLUME') {
           const totalVolume = parseFloat(values.poolTotalSwapVolume);
           const previousTotalVolume = parseFloat(

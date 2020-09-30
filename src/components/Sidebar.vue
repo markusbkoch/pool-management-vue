@@ -39,10 +39,6 @@ const startItems = [
     to: { name: 'home' }
   },
   {
-    name: 'Smart pools',
-    to: { name: 'smart' }
-  },
-  {
     name: 'Private pools',
     to: { name: 'private' }
   }
@@ -61,16 +57,11 @@ export default {
     items() {
       const items = clone(startItems);
       items[0].count = this.subgraph.balancer.finalizedPoolCount;
-      // items[1].count = this.subgraph.balancer.crpCount;
-      items[2].count = this.subgraph.balancer.privatePoolCount;
+      items[1].count = this.subgraph.balancer.privatePoolCount;
       if (this.web3.account) {
         items.push({
           name: 'Create a pool',
           to: { name: 'create' }
-        });
-        items.push({
-          name: 'My pools',
-          to: { name: 'my-pools' }
         });
       }
       return items;
@@ -104,10 +95,10 @@ export default {
           : this.price.values[address];
       return balance.times(price).toNumber();
     },
-    formatBalance(balanceString, address) {
+    formatBalance(balanceStr, address) {
       const decimals =
         address === 'ether' ? 18 : this.web3.tokenMetadata[address].decimals;
-      const rawBalance = normalizeBalance(balanceString || '0', decimals);
+      const rawBalance = normalizeBalance(balanceStr || '0', decimals);
       return this._precision(rawBalance.toNumber(), address);
     }
   }

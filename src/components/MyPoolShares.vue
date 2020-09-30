@@ -13,19 +13,21 @@ export default {
   props: ['pool', 'poolTokens'],
   computed: {
     poolTokenBalance() {
-      const bptAddress = this.bPool.getBptAddress();
-      const balance = this.web3.balances[getAddress(bptAddress)];
-      return normalizeBalance(balance || '0', 18);
+      const poolAddress = getAddress(this.pool.id);
+      const balance = this.web3.balances[poolAddress] || 0;
+      const poolBalanceNumber = normalizeBalance(balance, 18);
+      return poolBalanceNumber.toString();
     },
     totalShares() {
-      const poolAddress = this.bPool.getBptAddress();
+      const poolAddress = getAddress(this.pool.id);
       const poolSupply = this.web3.supplies[poolAddress] || 0;
       const totalShareNumber = normalizeBalance(poolSupply, 18);
       return totalShareNumber.toString();
     },
     poolSharesPercentFrom() {
-      if (!this.poolTokenBalance) return 0;
-      return ((100 / this.totalShares) * this.poolTokenBalance) / 100;
+      const poolSharesFrom = this.poolTokenBalance;
+      if (!poolSharesFrom) return 0;
+      return ((100 / this.totalShares) * poolSharesFrom) / 100;
     },
     poolSharesPercentTo() {
       const poolTokens =

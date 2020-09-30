@@ -2,14 +2,13 @@
   <UiModal :open="open" @close="$emit('close')" v-if="pool.id">
     <UiModalForm @submit="handleSubmit">
       <template slot="header">
-        <h3 class="text-white">Add liquidity</h3>
+        <h3 class="text-white">Add Liquidity</h3>
       </template>
       <div class="text-center m-4 mt-0">
         <Toggle
           :value="type"
-          :options="liquidityToggleOptions"
+          :options="toggleOptions"
           @select="handleSelectType"
-          class="mt-4"
         />
       </div>
       <div class="m-4 d-block d-sm-flex">
@@ -79,15 +78,13 @@
           </UiTable>
           <UiTable class="mt-4">
             <UiTableTh class="text-left flex-items-center text-white">
-              <div class="flex-auto">
-                {{ _shorten(pool.symbol, 12) }} amount
-              </div>
+              <div class="flex-auto">BPT amount</div>
               <div class="flex-auto text-right">
                 {{ _num(userLiquidity.absolute.current) }}
                 <span v-if="userLiquidity.absolute.future">
                   → {{ _num(userLiquidity.absolute.future) }}
                 </span>
-                {{ _shorten(pool.symbol, 12) }}
+                BPT
               </div>
             </UiTableTh>
           </UiTable>
@@ -138,7 +135,7 @@
           "
           :loading="loading"
         >
-          Add liquidity
+          Add Liquidity
         </UiButton>
       </template>
     </UiModalForm>
@@ -148,6 +145,7 @@
 <script>
 import { mapActions } from 'vuex';
 import { getAddress } from '@ethersproject/address';
+
 import BigNumber from '@/helpers/bignumber';
 import {
   calcPoolTokensByRatio,
@@ -156,7 +154,7 @@ import {
   denormalizeBalance,
   isTxReverted,
   getTokenBySymbol,
-  liquidityToggleOptions,
+  toggleOptions,
   isLocked
 } from '@/helpers/utils';
 import { calcPoolOutGivenSingleIn } from '@/helpers/math';
@@ -174,10 +172,10 @@ function hasToken(pool, symbol) {
 }
 
 export default {
-  props: ['open', 'pool', 'bPool'],
+  props: ['open', 'pool'],
   data() {
     return {
-      liquidityToggleOptions,
+      toggleOptions,
       loading: false,
       poolTokens: null,
       amounts: {},
@@ -204,12 +202,13 @@ export default {
   },
   computed: {
     poolTokenBalance() {
-      const bptAddress = this.bPool.getBptAddress();
-      const balance = this.web3.balances[getAddress(bptAddress)];
-      return normalizeBalance(balance || '0', 18);
+      const poolAddress = getAddress(this.pool.id);
+      const balance = this.web3.balances[poolAddress] || 0;
+      const poolBalanceNumber = normalizeBalance(balance, 18);
+      return poolBalanceNumber.toString();
     },
     totalShares() {
-      const poolAddress = this.bPool.getBptAddress();
+      const poolAddress = getAddress(this.pool.id);
       const poolSupply = this.web3.supplies[poolAddress] || 0;
       const totalShareNumber = normalizeBalance(poolSupply, 18);
       return totalShareNumber.toString();
@@ -235,7 +234,7 @@ export default {
             .toNumber()
         : 0;
       const future = (poolSharesFrom + poolTokens) / (totalShares + poolTokens);
-      return {
+      const userLiquidity = {
         absolute: {
           current: poolSharesFrom,
           future: poolSharesFrom + poolTokens
@@ -245,6 +244,7 @@ export default {
           future
         }
       };
+      return userLiquidity;
     },
     tokenError() {
       if (
@@ -316,9 +316,12 @@ export default {
       return undefined;
     },
     transferError() {
-      if (this.tokenError || this.validationError || this.lockedTokenError)
+      if (this.tokenError || this.validationError || this.lockedTokenError) {
         return undefined;
-      if (!this.transactionReverted) return undefined;
+      }
+      if (!this.transactionReverted) {
+        return undefined;
+      }
       if (hasToken(this.pool, 'SNX')) {
         return 'Adding liquidity failed as your SNX is locked in staking.';
       }
@@ -439,7 +442,9 @@ export default {
         .times(poolSupply)
         .div(tokenBalanceIn)
         .div(totalWeight);
-      return bnum(1).minus(poolAmountOut.div(expectedPoolAmountOut));
+      const one = bnum(1);
+      const slippage = one.minus(poolAmountOut.div(expectedPoolAmountOut));
+      return slippage;
     },
     findFrontrunnableToken() {
       if (this.validationError) {
@@ -546,10 +551,9 @@ export default {
     },
     async handleSubmit() {
       this.loading = true;
-      const poolAddress = this.bPool.getBptAddress();
       if (this.isMultiAsset) {
         const params = {
-          poolAddress,
+          poolAddress: this.pool.id,
           poolAmountOut: this.poolTokens,
           maxAmountsIn: this.pool.tokensList.map(tokenAddress => {
             const token = this.pool.tokens.find(
@@ -562,11 +566,12 @@ export default {
             const balanceAmountIn = bnum(this.web3.balances[token.checksum]);
             const tokenAmountIn = BigNumber.min(inputAmountIn, balanceAmountIn);
             return tokenAmountIn.toString();
-          }),
-          isCrp: this.bPool.isCrp()
+          })
         };
         const txResult = await this.joinPool(params);
-        if (isTxReverted(txResult)) this.transactionReverted = true;
+        if (isTxReverted(txResult)) {
+          this.transactionReverted = true;
+        }
       } else {
         const tokenIn = this.pool.tokens.find(
           token => token.checksum === this.activeToken
@@ -582,15 +587,13 @@ export default {
           .integerValue(BigNumber.ROUND_UP)
           .toString();
         const params = {
-          poolAddress,
+          poolAddress: this.pool.id,
           tokenInAddress: this.activeToken,
           tokenAmountIn,
           minPoolAmountOut
         };
         await this.joinswapExternAmountIn(params);
       }
-      this.$emit('close');
-      this.$emit('reload');
       this.loading = false;
     },
     isInputValid(token) {

@@ -7,24 +7,22 @@ import { getAddress } from '@ethersproject/address';
 import { Interface } from '@ethersproject/abi';
 import abi from '@/helpers/abi';
 import config from '@/config';
-// @ts-ignore
-import provider from '@/helpers/rpc';
+import wsProvider from '@/helpers/ws';
 import { GAS_LIMIT_BUFFER, isTxRejected, logRevertedTx } from '@/helpers/utils';
 
 let auth;
-let web3 = provider;
+let web3;
 
 const state = {
   injectedLoaded: false,
   injectedChainId: null,
-  blockNumber: 0,
   account: null,
   dsProxyAddress: null,
+  name: null,
   active: false,
   supplies: {},
   balances: {},
   allowances: {},
-  crps: {},
   tokenMetadata: {}
 };
 
@@ -34,10 +32,10 @@ const mutations = {
     Vue.set(_state, 'injectedChainId', null);
     Vue.set(_state, 'account', null);
     Vue.set(_state, 'dsProxyAddress', null);
+    Vue.set(_state, 'name', null);
     Vue.set(_state, 'active', false);
     Vue.set(_state, 'balances', {});
     Vue.set(_state, 'allowances', {});
-    Vue.set(_state, 'crps', {});
     console.debug('LOGOUT');
   },
   LOAD_TOKEN_METADATA_REQUEST() {
@@ -68,6 +66,7 @@ const mutations = {
     Vue.set(_state, 'injectedLoaded', payload.injectedLoaded);
     Vue.set(_state, 'injectedChainId', payload.injectedChainId);
     Vue.set(_state, 'account', payload.account);
+    Vue.set(_state, 'name', payload.name);
     Vue.set(_state, 'active', true);
     console.debug('LOAD_PROVIDER_SUCCESS');
   },
@@ -91,16 +90,6 @@ const mutations = {
     Vue.set(_state, 'active', false);
     console.debug('LOAD_BACKUP_PROVIDER_FAILURE', payload);
   },
-  GET_LATEST_BLOCK_REQUEST() {
-    console.debug('GET_LATEST_BLOCK_REQUEST');
-  },
-  GET_LATEST_BLOCK_SUCCESS(_state, payload) {
-    console.debug('GET_LATEST_BLOCK_SUCCESS', payload);
-    Vue.set(_state, 'blockNumber', payload);
-  },
-  GET_LATEST_BLOCK_FAILURE() {
-    console.debug('GET_LATEST_BLOCK_FAILURE');
-  },
   HANDLE_CHAIN_CHANGED() {
     console.debug('HANDLE_CHAIN_CHANGED');
   },
@@ -108,11 +97,21 @@ const mutations = {
     Vue.set(_state, 'account', payload);
     console.debug('HANDLE_ACCOUNTS_CHANGED', payload);
   },
+  HANDLE_CLOSE_CHANGED() {
+    console.debug('HANDLE_CLOSE_CHANGED');
+  },
   HANDLE_NETWORK_CHANGED() {
     console.debug('HANDLE_NETWORK_CHANGED');
   },
-  HANDLE_DISCONNECT() {
-    console.debug('HANDLE_DISCONNECT');
+  LOOKUP_ADDRESS_REQUEST() {
+    console.debug('LOOKUP_ADDRESS_REQUEST');
+  },
+  LOOKUP_ADDRESS_SUCCESS(_state, payload) {
+    Vue.set(_state, 'name', payload);
+    console.debug('LOOKUP_ADDRESS_SUCCESS');
+  },
+  LOOKUP_ADDRESS_FAILURE(_state, payload) {
+    console.debug('LOOKUP_ADDRESS_FAILURE', payload);
   },
   RESOLVE_NAME_REQUEST() {
     console.debug('RESOLVE_NAME_REQUEST');
@@ -187,19 +186,6 @@ const mutations = {
   },
   GET_PROXY_FAILURE(_state, payload) {
     console.debug('GET_PROXY_FAILURE', payload);
-  },
-  GET_CRPS_REQUEST() {
-    console.debug('GET_CRPS_REQUEST');
-  },
-  GET_CRPS_SUCCESS(_state, payload) {
-    for (const address in payload) {
-      const crp = payload[address];
-      Vue.set(_state.crps, address, crp);
-    }
-    console.debug('GET_CRPS_SUCCESS');
-  },
-  GET_CRPS_FAILURE(_state, payload) {
-    console.debug('GET_CRPS_FAILURE', payload);
   }
 };
 
@@ -217,7 +203,6 @@ const actions = {
     commit('LOGOUT');
   },
   initTokenMetadata: async ({ commit }) => {
-    const invalids = ['0xD46bA6D942050d489DBd938a2C909A5d5039A161'];
     const metadata = Object.fromEntries(
       Object.entries(config.tokens).map(tokenEntry => {
         const { decimals, symbol, name } = tokenEntry[1] as any;
@@ -227,7 +212,7 @@ const actions = {
             decimals,
             symbol,
             name,
-            whitelisted: !invalids.includes(tokenEntry[0])
+            whitelisted: true
           }
         ];
       })
@@ -313,8 +298,8 @@ const actions = {
             await dispatch('loadAccount');
           }
         });
-        auth.provider.on('disconnect', async () => {
-          commit('HANDLE_DISCONNECT');
+        auth.provider.on('close', async () => {
+          commit('HANDLE_CLOSE');
           if (state.active) await dispatch('loadWeb3');
         });
         auth.provider.on('networkChanged', async () => {
@@ -342,7 +327,8 @@ const actions = {
   loadBackupProvider: async ({ commit }) => {
     commit('LOAD_BACKUP_PROVIDER_REQUEST');
     try {
-      const network = await provider.getNetwork();
+      web3 = wsProvider;
+      const network = await web3.getNetwork();
       commit('LOAD_BACKUP_PROVIDER_SUCCESS', {
         injectedActive: false,
         backUpLoaded: true,
@@ -354,15 +340,14 @@ const actions = {
       return Promise.reject();
     }
   },
-  getLatestBlock: async ({ commit }) => {
-    commit('GET_LATEST_BLOCK_REQUEST');
+  lookupAddress: async ({ commit }) => {
+    commit('LOOKUP_ADDRESS_REQUEST');
     try {
-      const block = await web3.getBlockNumber();
-      commit('GET_LATEST_BLOCK_SUCCESS', block);
-      return block;
+      const name = await web3.lookupAddress(state.account);
+      commit('LOOKUP_ADDRESS_SUCCESS', name);
+      return name;
     } catch (e) {
-      commit('GET_LATEST_BLOCK_FAILURE', e);
-      return Promise.reject();
+      commit('LOOKUP_ADDRESS_FAILURE', e);
     }
   },
   resolveName: async ({ commit }, payload) => {
@@ -395,7 +380,8 @@ const actions = {
         overrides
       );
       const gasLimit = gasLimitNumber.toNumber();
-      overrides.gasLimit = Math.floor(gasLimit * (1 + GAS_LIMIT_BUFFER));
+      const safeGasLimit = Math.floor(gasLimit * (1 + GAS_LIMIT_BUFFER));
+      overrides.gasLimit = safeGasLimit;
 
       const tx = await contractWithSigner[action](...params, overrides);
       await tx.wait();
@@ -406,7 +392,7 @@ const actions = {
         commit('SEND_TRANSACTION_REJECTED', e);
         return Promise.reject();
       }
-      logRevertedTx(provider, contract, action, params);
+      logRevertedTx(wsProvider, contract, action, params);
       commit('SEND_TRANSACTION_FAILURE', e);
       return Promise.reject(e);
     }
@@ -418,17 +404,52 @@ const actions = {
     await dispatch(action, params);
   },
   loadAccount: async ({ dispatch }) => {
-    if (!state.account) return;
+    if (!state.account) {
+      return;
+    }
     // @ts-ignore
     const tokens = Object.entries(config.tokens).map(token => token[1].address);
     await dispatch('getProxy');
     await Promise.all([
+      dispatch('lookupAddress'),
       dispatch('getBalances', tokens),
       dispatch('getAllowances', { tokens, spender: state.dsProxyAddress }),
+      dispatch('getUserPools'),
       dispatch('getUserPoolShares')
     ]);
   },
-  getPoolBalances: async (_state, { poolAddress, tokens }) => {
+  getSupplies: async ({ commit }, tokens) => {
+    commit('GET_SUPPLIES_REQUEST');
+    const multi = new Contract(
+      config.addresses.multicall,
+      abi['Multicall'],
+      web3
+    );
+    const calls = [];
+    const tokenIface = new Interface(abi.TestToken);
+    tokens.forEach(token => {
+      // @ts-ignore
+      calls.push([token, tokenIface.encodeFunctionData('totalSupply', [])]);
+    });
+    const supplies: any = {};
+    try {
+      const [, response] = await multi.aggregate(calls);
+      for (let i = 0; i < tokens.length; i++) {
+        const [totalSupplyNumber] = tokenIface.decodeFunctionResult(
+          'totalSupply',
+          response[i]
+        );
+        const totalSupply = totalSupplyNumber.toString();
+        supplies[tokens[i]] = totalSupply;
+      }
+      commit('GET_SUPPLIES_SUCCESS', supplies);
+      return supplies;
+    } catch (e) {
+      commit('GET_SUPPLIES_FAILURE', e);
+      return Promise.reject();
+    }
+  },
+  getPoolBalances: async (state, { poolAddress, tokens }) => {
     const promises: any = [];
     const multi = new Contract(
       config.addresses.multicall,
@@ -466,36 +487,6 @@ const actions = {
       });
       return balances;
     } catch (e) {
-      return Promise.reject();
-    }
-  },
-  getSupplies: async ({ commit }, tokens) => {
-    commit('GET_SUPPLIES_REQUEST');
-    const multi = new Contract(
-      config.addresses.multicall,
-      abi['Multicall'],
-      web3
-    );
-    const calls = [];
-    const tokenIface = new Interface(abi.TestToken);
-    tokens.forEach(token => {
-      // @ts-ignore
-      calls.push([token, tokenIface.encodeFunctionData('totalSupply', [])]);
-    });
-    const supplies: any = {};
-    try {
-      const [, response] = await multi.aggregate(calls);
-      for (let i = 0; i < tokens.length; i++) {
-        const [totalSupplyNumber] = tokenIface.decodeFunctionResult(
-          'totalSupply',
-          response[i]
-        );
-        supplies[tokens[i]] = totalSupplyNumber.toString();
-      }
-      commit('GET_SUPPLIES_SUCCESS', supplies);
-      return supplies;
-    } catch (e) {
-      commit('GET_SUPPLIES_FAILURE', e);
       return Promise.reject();
     }
   },
@@ -604,94 +595,6 @@ const actions = {
       return proxy;
     } catch (e) {
       commit('GET_PROXY_FAILURE', e);
-      return Promise.reject();
-    }
-  },
-  getCrps: async ({ commit }, crps) => {
-    commit('GET_CRPS_REQUEST');
-    const multi = new Contract(
-      config.addresses.multicall,
-      abi['Multicall'],
-      web3
-    );
-    const calls = [];
-    const crpIface = new Interface(abi.ConfigurableRightsPool);
-    crps.forEach(crp => {
-      // @ts-ignore
-      calls.push([crp, crpIface.encodeFunctionData('decimals', [])]);
-      // @ts-ignore
-      calls.push([crp, crpIface.encodeFunctionData('symbol', [])]);
-      // @ts-ignore
-      calls.push([crp, crpIface.encodeFunctionData('name', [])]);
-      // @ts-ignore
-      calls.push([crp, crpIface.encodeFunctionData('totalSupply', [])]);
-      // @ts-ignore
-      calls.push([crp, crpIface.encodeFunctionData('bspCap', [])]);
-      calls.push([
-        // @ts-ignore
-        crp,
-        // @ts-ignore
-        crpIface.encodeFunctionData('addTokenTimeLockInBlocks', [])
-      ]);
-      calls.push([
-        // @ts-ignore
-        crp,
-        // @ts-ignore
-        crpIface.encodeFunctionData('minimumWeightChangeBlockPeriod', [])
-      ]);
-    });
-    const crpData: any = {};
-    try {
-      const [, response] = await multi.aggregate(calls);
-      for (let i = 0; i < crps.length; i++) {
-        const [decimals] = crpIface.decodeFunctionResult(
-          'decimals',
-          response[7 * i]
-        );
-        const [symbol] = crpIface.decodeFunctionResult(
-          'symbol',
-          response[7 * i + 1]
-        );
-        const [name] = crpIface.decodeFunctionResult(
-          'name',
-          response[7 * i + 2]
-        );
-        const [totalSupplyNumber] = crpIface.decodeFunctionResult(
-          'totalSupply',
-          response[7 * i + 3]
-        );
-        const totalSupply = totalSupplyNumber.toString();
-        const [bspCapNumber] = crpIface.decodeFunctionResult(
-          'bspCap',
-          response[7 * i + 4]
-        );
-        const bspCap = bspCapNumber.toString();
-        const [addTokenTimeLockInBlocksNumber] = crpIface.decodeFunctionResult(
-          'addTokenTimeLockInBlocks',
-          response[7 * i + 5]
-        );
-        const addTokenTimeLockInBlocks = addTokenTimeLockInBlocksNumber.toNumber();
-        const [
-          minimumWeightChangeBlockPeriodNumber
-        ] = crpIface.decodeFunctionResult(
-          'minimumWeightChangeBlockPeriod',
-          response[7 * i + 6]
-        );
-        const minimumWeightChangeBlockPeriod = minimumWeightChangeBlockPeriodNumber.toNumber();
-        crpData[crps[i]] = {
-          decimals,
-          symbol,
-          name,
-          totalSupply,
-          bspCap,
-          addTokenTimeLockInBlocks,
-          minimumWeightChangeBlockPeriod
-        };
-      }
-      commit('GET_CRPS_SUCCESS', crpData);
-      return crpData;
-    } catch (e) {
-      commit('GET_CRPS_FAILURE', e);
       return Promise.reject();
     }
   }

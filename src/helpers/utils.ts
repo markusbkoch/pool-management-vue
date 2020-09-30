@@ -12,23 +12,9 @@ export const MAX_UINT = MaxUint256;
 export const POOL_TOKENS_DECIMALS = 18;
 export const GAS_LIMIT_BUFFER = 0.1;
 
-export const liquidityToggleOptions = {
+export const toggleOptions = {
   MULTI_ASSET: 'Multi assets',
   SINGLE_ASSET: 'Single asset'
-};
-
-export const poolTypes = {
-  SHARED_POOL: 'Shared',
-  SMART_POOL: 'Smart'
-};
-
-export const poolRights = {
-  canPauseSwapping: 'Can pause swapping',
-  canChangeSwapFee: 'Can change swap fee',
-  canChangeWeights: 'Can change weights',
-  canAddRemoveTokens: 'Can add and remove tokens',
-  canWhitelistLPs: 'Can whitelist LPs',
-  canChangeCap: 'Can change pool cap'
 };
 
 export const unknownColors = [
@@ -50,12 +36,8 @@ export function jsonParse(input, fallback?) {
   }
 }
 
-export function shortenAddress(str = '') {
-  return str ? `${str.slice(0, 6)}...${str.slice(str.length - 4)}` : str;
-}
-
-export function shorten(str = '', max = 14) {
-  return str.length > max ? `${str.slice(0, max)}...` : str;
+export function shorten(str = '') {
+  return `${str.slice(0, 6)}...${str.slice(str.length - 4)}`;
 }
 
 export function bnum(val: string | number | BigNumber): BigNumber {
@@ -242,21 +224,4 @@ export function formatFilters(filters, fb) {
   if (!filters.token) filters.token = [];
   if (!Array.isArray(filters.token)) filters.token = [filters.token];
   return filters;
-}
-
-export function blockNumberToTimestamp(
-  currentTime,
-  currentBlockNumber,
-  blockNumber
-) {
-  const AVG_BLOCK_TIMES = {
-    1: 13,
-    42: 5
-  };
-  const avgBlockTime = AVG_BLOCK_TIMES[config.chainId];
-  return currentTime + avgBlockTime * 1000 * (blockNumber - currentBlockNumber);
-}
-
-export function filterObj(obj, fn) {
-  return Object.fromEntries(Object.entries(obj).filter(item => fn(item)));
 }

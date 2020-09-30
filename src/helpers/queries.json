@@ -8,7 +8,6 @@
       "color": true,
       "poolCount": true,
       "finalizedPoolCount": true,
-      "crpCount": true,
       "txCount": true
     }
   },
@@ -33,11 +32,11 @@
     "pool": {
       "id": true,
       "controller": true,
+      "publicSwap": true,
       "finalized": true,
-      "crp": true,
-      "crpController": true,
       "swapFee": true,
       "totalWeight": true,
+      "totalShares": true,
       "totalSwapVolume": true,
       "totalSwapFee": true,
       "createTime": true,
@@ -66,6 +65,12 @@
           "orderBy": "timestamp",
           "orderDirection": "desc"
         },
+        "tokenIn": true,
+        "tokenInSym": true,
+        "tokenAmountIn": true,
+        "tokenOut": true,
+        "tokenOutSym": true,
+        "tokenAmountOut": true,
         "poolTotalSwapVolume": true
       }
     }
@@ -115,8 +120,6 @@
       "id": true,
       "publicSwap": true,
       "finalized": true,
-      "crp": true,
-      "rights": true,
       "swapFee": true,
       "totalWeight": true,
       "totalShares": true,
@@ -142,6 +145,12 @@
           "orderBy": "timestamp",
           "orderDirection": "desc"
         },
+        "tokenIn": true,
+        "tokenInSym": true,
+        "tokenAmountIn": true,
+        "tokenOut": true,
+        "tokenOutSym": true,
+        "tokenAmountOut": true,
         "poolTotalSwapVolume": true
       }
     }

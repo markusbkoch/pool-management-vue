@@ -2,14 +2,13 @@
   <UiModal :open="open" @close="$emit('close')" v-if="pool.id">
     <UiModalForm @submit="handleSubmit">
       <template slot="header">
-        <h3 class="text-white">Remove liquidity</h3>
+        <h3 class="text-white">Remove Liquidity</h3>
       </template>
       <div class="text-center m-4 mt-0">
         <Toggle
           :value="type"
-          :options="liquidityToggleOptions"
+          :options="toggleOptions"
           @select="handleSelectType"
-          class="mt-4"
         />
       </div>
       <div class="m-4 d-block d-sm-flex">
@@ -56,9 +55,9 @@
           </UiTable>
           <UiTable class="mt-4">
             <UiTableTh class="text-left flex-items-center text-white">
-              <div class="flex-auto">Amount</div>
-              <div class="ml-2">
-                {{ _num(poolTokenBalance) }} {{ _shorten(pool.symbol, 12) }}
+              <div class="flex-auto">BPT amount</div>
+              <div class="ml-2 column text-left">
+                {{ _num(poolTokenBalance) }} BPT
                 <a @click="setMax" class="link-text mr-3">
                   <UiLabel v-text="'Max'" />
                 </a>
@@ -94,7 +93,7 @@
           class="button-primary ml-2"
           :loading="loading"
         >
-          Remove liquidity
+          Remove Liquidity
         </UiButton>
       </template>
     </UiModalForm>
@@ -109,7 +108,7 @@ import {
   bnum,
   normalizeBalance,
   denormalizeBalance,
-  liquidityToggleOptions
+  toggleOptions
 } from '@/helpers/utils';
 import { calcSingleOutGivenPoolIn } from '@/helpers/math';
 import { validateNumberInput, formatError } from '@/helpers/validation';
@@ -117,10 +116,10 @@ import { validateNumberInput, formatError } from '@/helpers/validation';
 const BALANCE_BUFFER = 0.01;
 
 export default {
-  props: ['open', 'pool', 'bPool'],
+  props: ['open', 'pool'],
   data() {
     return {
-      liquidityToggleOptions,
+      toggleOptions,
       loading: false,
       poolAmountIn: '',
       type: 'MULTI_ASSET',
@@ -137,12 +136,13 @@ export default {
   },
   computed: {
     poolTokenBalance() {
-      const bptAddress = this.bPool.getBptAddress();
-      const balance = this.web3.balances[getAddress(bptAddress)];
-      return normalizeBalance(balance || '0', 18);
+      const poolAddress = getAddress(this.pool.id);
+      const balance = this.web3.balances[poolAddress] || 0;
+      const poolBalanceNumber = normalizeBalance(balance, 18);
+      return poolBalanceNumber.toString();
     },
     totalShares() {
-      const poolAddress = this.bPool.getBptAddress();
+      const poolAddress = getAddress(this.pool.id);
       const poolSupply = this.web3.supplies[poolAddress] || 0;
       const totalShareNumber = normalizeBalance(poolSupply, 18);
       return totalShareNumber.toString();
@@ -230,9 +230,12 @@ export default {
       return undefined;
     },
     slippage() {
-      if (this.validationError) return undefined;
-      if (this.isMultiAsset) return undefined;
-
+      if (this.validationError) {
+        return undefined;
+      }
+      if (this.isMultiAsset) {
+        return undefined;
+      }
       const tokenOutAddress = this.activeToken;
       const tokenOut = this.pool.tokens.find(
         token => token.address === tokenOutAddress
@@ -248,12 +251,6 @@ export default {
       const totalWeight = bnum(this.pool.totalWeight).times('1e18');
       const swapFee = bnum(this.pool.swapFee).times('1e18');
 
-      if (amount.div(poolSupply).gt(0.99)) {
-        // Invalidate user's attempt to withdraw the entire pool supply in a single token
-        // At amounts close to 100%, solidity math freaks out
-        return 0;
-      }
-
       const tokenAmountOut = calcSingleOutGivenPoolIn(
         tokenBalanceOut,
         tokenWeightOut,
@@ -267,7 +264,9 @@ export default {
         .times(tokenBalanceOut)
         .div(poolSupply)
         .div(tokenWeightOut);
-      return bnum(1).minus(tokenAmountOut.div(expectedTokenAmountOut));
+      const one = bnum(1);
+      const slippage = one.minus(tokenAmountOut.div(expectedTokenAmountOut));
+      return slippage;
     },
     isMultiAsset() {
       return this.type === 'MULTI_ASSET';
@@ -277,10 +276,9 @@ export default {
     ...mapActions(['exitPool', 'exitswapPoolAmountIn']),
     async handleSubmit() {
       this.loading = true;
-      const poolAddress = this.bPool.getBptAddress();
       if (this.isMultiAsset) {
         await this.exitPool({
-          poolAddress,
+          poolAddress: this.pool.id,
           poolAmountIn: this.poolAmountIn,
           minAmountsOut: this.pool.tokensList.map(tokenAddress => {
             const token = this.pool.tokens.find(
@@ -308,14 +306,12 @@ export default {
           .integerValue(BigNumber.ROUND_UP)
           .toString();
         await this.exitswapPoolAmountIn({
-          poolAddress,
+          poolAddress: this.pool.id,
           tokenOutAddress,
           poolAmountIn: this.poolAmountIn,
           minTokenAmountOut
         });
       }
-      this.$emit('close');
-      this.$emit('reload');
       this.loading = false;
     },
     handleSelectType(type) {
@@ -329,7 +325,9 @@ export default {
       return (this.poolTokenBalance / this.totalShares) * token.balance;
     },
     getTokenAmountOut(token) {
-      if (!this.poolAmountIn || !parseFloat(this.poolAmountIn)) return 0;
+      if (!this.poolAmountIn || !parseFloat(this.poolAmountIn)) {
+        return 0;
+      }
       if (this.isMultiAsset) {
         return (token.balance / this.totalShares) * this.poolAmountIn;
       } else {
@@ -349,6 +347,12 @@ export default {
         const poolSupply = denormalizeBalance(this.totalShares, 18);
         const totalWeight = bnum(this.pool.totalWeight).times('1e18');
         const swapFee = bnum(this.pool.swapFee).times('1e18');
+
+        if (amount.div(poolSupply).gt(0.99)) {
+          // Invalidate user's attempt to withdraw the entire pool supply in a single token
+          // At amounts close to 100%, solidity math freaks out
+          return 0;
+        }
 
         const tokenAmountOut = calcSingleOutGivenPoolIn(
           tokenBalanceOut,
