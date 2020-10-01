@@ -22,6 +22,6 @@ npm run build
 npm run lint
 ```
 
-## License
+## License. 
 
 [GPL-3.0](LICENSE).
